@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -267,6 +268,13 @@
         <!-- Alat Belajar: Rangkuman & Flashcard -->
         <button type="button" id="btnOpenStudyTools" class="px-2.5 py-2 rounded-xl bg-white text-[#3E5661] hover:bg-[#E6F0F2] text-xs font-extrabold shadow-sm transition-all">
           <i class="fa-solid fa-layer-group sm:mr-1 text-[#7296A4]"></i><span class="hidden md:inline">Ringkasan &amp; Flashcard</span>
+        </button>
+
+        <!-- Pengaturan Gemini API Key (Aman di LocalStorage) -->
+        <button type="button" id="btnOpenApiKeyModal" title="Atur Gemini API Key" class="px-2.5 py-2 rounded-xl bg-white/25 hover:bg-white/40 text-white border border-white/55 text-xs font-bold transition-all flex items-center gap-1.5">
+          <i class="fa-solid fa-key"></i>
+          <span class="hidden sm:inline">API Key</span>
+          <span id="apiKeyStatusDot" class="w-2 h-2 rounded-full bg-amber-300"></span>
         </button>
 
         <!-- Buat Ulang Semua -->
@@ -978,6 +986,55 @@
   </div>
 
   <!-- ===================================================================== -->
+  <!-- MODAL 5: PENGATURAN GEMINI API KEY (AMAN DI LOCALSTORAGE)             -->
+  <!-- ===================================================================== -->
+  <div id="modalApiKey" class="no-print hidden fixed inset-0 z-50 bg-maroonDeep/45 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-creamPaper rounded-3xl max-w-md w-full p-6 border border-maroonDeep/30 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="w-8 h-8 rounded-xl bg-maroonDeep text-creamPaper flex items-center justify-center font-bold">
+            <i class="fa-solid fa-key"></i>
+          </span>
+          <div>
+            <h3 class="font-display font-bold text-base text-maroonDeep">Gemini API Key</h3>
+            <p class="text-[11px] text-maroonDeep/75">Disimpan aman hanya di browser perangkatmu</p>
+          </div>
+        </div>
+        <button type="button" id="btnCloseApiKeyModal" class="text-maroonDeep/75 hover:text-maroonDeep p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="rounded-xl bg-beigeWarm/55 border border-maroonDeep/20 p-3 text-[11px] text-maroonDeep space-y-1 leading-relaxed">
+        <p class="font-bold"><i class="fa-solid fa-shield-halved mr-1"></i>Aman untuk GitHub Pages</p>
+        <p>Kunci tidak pernah tersimpan di kode publik. Dapatkan kunci gratis di <strong>aistudio.google.com</strong> lalu tempel di bawah ini.</p>
+      </div>
+
+      <div class="space-y-1.5">
+        <label class="block text-xs font-bold text-maroonDeep">Masukkan API Key (AIza...):</label>
+        <div class="relative">
+          <input type="password" id="inputGeminiApiKey" placeholder="AIzaSy..." class="w-full rounded-xl bg-white border border-maroonDeep/30 focus:border-maroonDeep pl-3 pr-10 py-2.5 text-xs text-maroonDeep outline-none font-mono" />
+          <button type="button" id="btnToggleApiKeyVisibility" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-maroonDeep/70 hover:text-maroonDeep text-xs">
+            <i class="fa-regular fa-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-2 pt-1">
+        <button type="button" id="btnClearApiKey" class="px-3 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-maroonDeep/25 text-xs font-bold">
+          Hapus Kunci
+        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" id="btnCancelApiKeyModal" class="px-4 py-2 rounded-xl bg-beigeWarm text-maroonDeep text-xs font-bold border border-maroonDeep/25">Batal</button>
+          <button type="button" id="btnSaveApiKey" class="btn-starry px-4 py-2 rounded-xl text-xs font-bold">
+            <i class="fa-solid fa-check mr-1"></i>Simpan Kunci
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
   <!-- TOAST NOTIFICATION                                                    -->
   <!-- ===================================================================== -->
   <div id="toastContainer" class="no-print fixed bottom-5 right-5 z-50 space-y-2 max-w-sm"></div>
@@ -997,6 +1054,7 @@
       const GEMINI_MODEL = "gemini-2.5-flash";
       const TIMEOUT_MS = 45000;
       const BATCH_SIZE = 8;
+      const API_KEY_STORAGE_KEY = "soaloka_gemini_api_key_v1";
       const HISTORY_STORAGE_KEY = "soaloka_saved_quizzes_v1";
       const DRAFT_STORAGE_KEY = "soaloka_workspace_draft_v1";
       const SESSION_STORAGE_KEY = "soaloka_active_session_v1";
@@ -1642,7 +1700,13 @@
       }
 
       async function fetchGeminiJSON(payload, retries = 2) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+        const activeApiKey = getActiveApiKey();
+        if (!activeApiKey) {
+          openApiKeyModal();
+          throw new Error('Masukkan Gemini API Key terlebih dahulu lewat tombol API Key di atas.');
+        }
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(activeApiKey)}`;
         let backoff = 1000;
 
         for (let attempt = 1; attempt <= retries + 1; attempt++) {
@@ -3511,7 +3575,75 @@
         window.print();
       });
 
+      // =====================================================================
+      // PENGATURAN GEMINI API KEY (LOCALSTORAGE)
+      // =====================================================================
+      function getActiveApiKey() {
+        try {
+          const stored = (localStorage.getItem(API_KEY_STORAGE_KEY) || '').trim();
+          return stored || apiKey;
+        } catch {
+          return apiKey;
+        }
+      }
+
+      function updateApiKeyIndicator() {
+        const dot = $('apiKeyStatusDot');
+        if (!dot) return;
+        if (getActiveApiKey()) {
+          dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-sm';
+        } else {
+          dot.className = 'w-2 h-2 rounded-full bg-amber-300 animate-pulse';
+        }
+      }
+
+      function openApiKeyModal() {
+        $('inputGeminiApiKey').value = getActiveApiKey();
+        $('inputGeminiApiKey').type = 'password';
+        $('btnToggleApiKeyVisibility').innerHTML = '<i class="fa-regular fa-eye"></i>';
+        $('modalApiKey').classList.remove('hidden');
+      }
+
+      $('btnOpenApiKeyModal').addEventListener('click', openApiKeyModal);
+      $('btnCloseApiKeyModal').addEventListener('click', () => $('modalApiKey').classList.add('hidden'));
+      $('btnCancelApiKeyModal').addEventListener('click', () => $('modalApiKey').classList.add('hidden'));
+
+      $('btnToggleApiKeyVisibility').addEventListener('click', () => {
+        const inp = $('inputGeminiApiKey');
+        const isPass = inp.type === 'password';
+        inp.type = isPass ? 'text' : 'password';
+        $('btnToggleApiKeyVisibility').innerHTML = isPass
+          ? '<i class="fa-regular fa-eye-slash"></i>'
+          : '<i class="fa-regular fa-eye"></i>';
+      });
+
+      $('btnSaveApiKey').addEventListener('click', () => {
+        const val = $('inputGeminiApiKey').value.trim();
+        if (!val) {
+          showToast('Tempel kode API Key terlebih dahulu.', 'error');
+          return;
+        }
+        try {
+          localStorage.setItem(API_KEY_STORAGE_KEY, val);
+          updateApiKeyIndicator();
+          $('modalApiKey').classList.add('hidden');
+          showToast('Gemini API Key berhasil disimpan di perangkatmu!', 'success');
+        } catch (e) {
+          showToast('Gagal menyimpan API Key ke browser.', 'error');
+        }
+      });
+
+      $('btnClearApiKey').addEventListener('click', () => {
+        try {
+          localStorage.removeItem(API_KEY_STORAGE_KEY);
+          $('inputGeminiApiKey').value = '';
+          updateApiKeyIndicator();
+          showToast('API Key dihapus dari browser ini.', 'info');
+        } catch {}
+      });
+
       // Inisialisasi Pemulihan Draf & Sesi Latihan dari localStorage saat Halaman Dibuka
+      updateApiKeyIndicator();
       loadWorkspaceDraft();
       updateStatusIndicators();
       const hasRestoredSession = restoreActiveSession();
