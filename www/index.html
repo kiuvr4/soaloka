@@ -1630,8 +1630,8 @@
         schemaVersion: DATA_SCHEMA_VERSION,
         models: [
           "gemini-3-flash-preview",
-          "gemini-2.5-flash",
-          "gemini-2.0-flash"
+          "gemini-3.1-flash-lite-preview",
+          "gemini-3.1-pro-preview"
         ],
         timeoutMs: 75000,
         batchSize: 5,
@@ -2611,6 +2611,7 @@
         mode: "browser",
         backendEndpoint: "/api/generate",
         activeController: null,
+        discoveredModelsCache: null,
 
         cancel() {
           Soaloka.state.generation.cancelled = true;
@@ -2618,6 +2619,44 @@
             try { this.activeController.abort(); } catch {}
             this.activeController = null;
           }
+        },
+
+        async discoverAvailableModels(apiKey) {
+          if (Array.isArray(this.discoveredModelsCache) && this.discoveredModelsCache.length > 0) {
+            return this.discoveredModelsCache;
+          }
+          try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, {
+              headers: { 'x-goog-api-key': apiKey }
+            });
+            if (!res.ok) return Soaloka.config.models;
+            const data = await res.json();
+            const rawModels = Array.isArray(data?.models) ? data.models : [];
+            const supported = rawModels
+              .filter(m =>
+                Array.isArray(m.supportedGenerationMethods) &&
+                m.supportedGenerationMethods.includes('generateContent') &&
+                /gemini/i.test(m.name) &&
+                !/embedding|imagen|veo|aqa|tts|audio|robotics/i.test(m.name)
+              )
+              .map(m => m.name.replace(/^models\//, ''));
+
+            if (supported.length > 0) {
+              const flashFirst = [
+                ...supported.filter(n => /flash/i.test(n) && !/lite/i.test(n)),
+                ...supported.filter(n => /flash/i.test(n) && /lite/i.test(n)),
+                ...supported.filter(n => !/flash/i.test(n))
+              ];
+              const merged = Array.from(new Set([...flashFirst, ...Soaloka.config.models]));
+              this.discoveredModelsCache = merged;
+              Soaloka.config.models = merged;
+              Soaloka.utils.log('API', 'Auto-detected active Gemini models', merged.slice(0, 5));
+              return merged;
+            }
+          } catch (e) {
+            console.warn('[API] Model auto-discovery fallback:', e);
+          }
+          return Soaloka.config.models;
         },
 
         formatHumanError(status, errBodyText, rawErr) {
@@ -2763,7 +2802,7 @@
             throw new Error('Masukkan Gemini API Key terlebih dahulu lewat tombol API Key di atas.');
           }
 
-          const models = Soaloka.config.models;
+          const models = await this.discoverAvailableModels(activeApiKey);
           let lastError = new Error('Gagal terhubung ke layanan AI.');
           const baseDelay = 1000;
 
@@ -6411,6 +6450,7 @@
             return;
           }
           if (Soaloka.storage.setApiKey(val)) {
+            Soaloka.api.discoveredModelsCache = null;
             ui.updateApiKeyIndicator();
             u.$('modalApiKey').classList.add('hidden');
             ui.toast({ type: 'success', title: 'API Key Aktif', message: 'Gemini API Key berhasil disimpan di perangkatmu!' });
